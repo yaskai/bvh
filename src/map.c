@@ -52,9 +52,11 @@ Tri *MeshToTris(Mesh mesh, u32 *tri_count) {
 		for(u8 j = 0; j < 3; j++) {
 			u32 id = indices[j]; 
 
-			tri.vertices[j].x = mesh.vertices[id * 3 + 0];
-			tri.vertices[j].y = mesh.vertices[id * 3 + 1];
-			tri.vertices[j].z = mesh.vertices[id * 3 + 2];
+			tri.vertices[j] = (Vector3) {
+				.x = mesh.vertices[id * 3 + 0],
+				.y = mesh.vertices[id * 3 + 1],
+				.z = mesh.vertices[id * 3 + 2]
+			};
 		}
 
 		tris[i] = tri;
@@ -141,11 +143,13 @@ void BvhNodeSubdivide(Map *map, u16 root_id) {
 	float3 vals_min = Vector3ToFloatV(node->bounds.min);
 
 	// Calculate axis distances 
-	float3 extent = {
+	Vector3 v_extent = (Vector3) {
 		fabsf(node->bounds.max.x - node->bounds.min.x),	
 		fabsf(node->bounds.max.y - node->bounds.min.y),	
 		fabsf(node->bounds.max.z - node->bounds.min.z)	
 	};
+
+	float3 extent = Vector3ToFloatV(v_extent);
 
 	// Find longest axis distance to use for split
 	short split_axis = 0;

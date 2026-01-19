@@ -29,6 +29,8 @@ typedef struct {
 	Tri *tris;
 	BvhNode *bvh_nodes;
 
+	u32 *tri_ids;
+
 	u32 tri_count;
 
 	u16 bvh_node_capacity;
