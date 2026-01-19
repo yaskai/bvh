@@ -1,4 +1,5 @@
 #include <math.h>
+#include <float.h>
 #include <stdlib.h>
 #include "raylib.h"
 #include "raymath.h"
@@ -9,7 +10,7 @@
 #define CAM_MAX_PITCH		(89.0f * DEG2RAD) 
 #define CAM_SPEED			10.0f
 
-#define VIS_NODE_CAP		128
+#define VIS_NODE_CAP		512
 
 // For first-person camera movment
 // Pitch, yaw, roll
@@ -24,7 +25,7 @@ Material default_mat;
 
 int main() {
 	SetTraceLogLevel(LOG_ERROR);
-	SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_VSYNC_HINT);
+	SetConfigFlags(FLAG_VSYNC_HINT);
 
 	InitWindow(1920, 1080, "Bvh Demo");
 	DisableCursor();
@@ -41,15 +42,15 @@ int main() {
 
 	Map map = (Map) {0};
 
-	char *map_name = "HyruleField.glb";
-	//char *map_name = "hangar.glb";
+	//char *map_name = "HyruleField.glb";
+	char *map_name = "e1m1.glb";
 	MapInit(&map, map_name);
 
 	default_mat = LoadMaterialDefault();
 
 	Font font = LoadFont("resources/fonts/v5easter.ttf");
 
-	RenderTexture rt = LoadRenderTexture(640, 480);
+	RenderTexture rt = LoadRenderTexture(1280, 720);
 
 	Vector3 cam_dir;
 	Vector3 ray_pos;
@@ -58,6 +59,9 @@ int main() {
 	u16 *vis_nodes = calloc(VIS_NODE_CAP, sizeof(u16));
 	u16 vis_node_count = 0;
 	u16 tri_tests = 0;
+
+	u16 *branch_hits = calloc(VIS_NODE_CAP, sizeof(u16));
+	u16 branch_hit_count = 0;
 
 	while(!WindowShouldClose()) {
 		float delta_time = GetFrameTime();
@@ -71,12 +75,14 @@ int main() {
 
 		vis_node_count = 0;
 		tri_tests = 0;
-		BvhTraceNodes(ray, 0, vis_nodes, &vis_node_count, &map, &tri_tests);
+		branch_hit_count = 0;
+		float max_dist = FLT_MAX;
+		BvhTraceNodes(ray, 0, vis_nodes, &vis_node_count, &map, &tri_tests, branch_hits, &branch_hit_count, &max_dist);
 
 		BeginDrawing();
 
 		BeginTextureMode(rt);
-		ClearBackground(BLACK);
+		ClearBackground(BLANK);
 
 		BeginMode3D(virt_cam);
 
@@ -117,19 +123,26 @@ int main() {
 
 			bool is_leaf = (node->tri_count > 0);
 			if(!is_leaf) continue;
+			Color color = DARKBLUE;
 
-			DrawBoundingBox(node->bounds, DARKGRAY);
+			DrawBoundingBox(node->bounds, ColorAlpha(color, 0.75f));
 		}
 		*/
 
+		for(u16 i = 0; i < branch_hit_count; i++) {
+			BvhNode *node = &map.bvh_nodes[branch_hits[i]];
+			DrawBoundingBox(node->bounds, ColorAlpha(DARKGREEN, 0.5f));
+		}
+		
 		for(u16 i = 0; i < vis_node_count; i++) {
 			BvhNode *node = &map.bvh_nodes[vis_nodes[i]];
-			DrawBoundingBox(node->bounds, PINK);
+			DrawBoundingBox(node->bounds, GREEN);
 
 			for(u16 i = 0; i < node->tri_count; i++) {
 				u16 tri_id = map.tri_ids[node->first_tri + i];
 				Tri *tri = &map.tris[tri_id];
 
+				/*
 				Color norm_color = (Color) {
 					.r = tri->normal.x * 255, 
 					.g = tri->normal.y * 255, 
@@ -143,10 +156,18 @@ int main() {
 					tri->vertices[2],
 					norm_color
 				);
+				*/
 
-				DrawLine3D(tri->vertices[0], tri->vertices[1], SKYBLUE);
-				DrawLine3D(tri->vertices[1], tri->vertices[2], SKYBLUE);
-				DrawLine3D(tri->vertices[2], tri->vertices[0], SKYBLUE);
+				DrawTriangle3D(
+					tri->vertices[0],
+					tri->vertices[1],
+					tri->vertices[2],
+					GREEN
+				);
+
+				DrawLine3D(tri->vertices[0], tri->vertices[1], GREEN);
+				DrawLine3D(tri->vertices[1], tri->vertices[2], GREEN);
+				DrawLine3D(tri->vertices[2], tri->vertices[0], GREEN);
 			}
 		}
 
@@ -177,10 +198,11 @@ int main() {
 
 		DrawTextEx(font, TextFormat("fps: %d", GetFPS()), (Vector2) { 0, 0 }, 32, 1, LAVENDER);
 		DrawTextEx(font, TextFormat("file: %s", map_name), (Vector2) { 0, 40 }, 32, 1, LAVENDER);
-		DrawTextEx(font, TextFormat("node hits: %d", vis_node_count), (Vector2) { 0, 80 }, 32, 1, LAVENDER);
+		DrawTextEx(font, TextFormat("leaf hits: %d", vis_node_count), (Vector2) { 0, 80 }, 32, 1, LAVENDER);
+		DrawTextEx(font, TextFormat("branch hits: %d", branch_hit_count), (Vector2) { 0, 120 }, 32, 1, LAVENDER);
 
 		float tri_percent = (tri_tests > 0) ? ((float)tri_tests / map.tri_count) * 100.0f : 0; 
-		DrawTextEx(font, TextFormat("tri tests: %d/%d, %%%.2f", tri_tests, map.tri_count, tri_percent), (Vector2) { 0, 120 }, 32, 1, LAVENDER);
+		DrawTextEx(font, TextFormat("tri tests: %d/%d, %%%.2f", tri_tests, map.tri_count, tri_percent), (Vector2) { 0, 160 }, 32, 1, LAVENDER);
 
 		EndDrawing();
 	}

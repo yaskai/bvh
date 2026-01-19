@@ -51,6 +51,28 @@ Vector3 FaceNormal(Vector3 *vertices) {
 	return Vector3Normalize(Vector3CrossProduct(u, v));
 }
 
+Vector3 BoxExtent(BoundingBox box) {
+	return (Vector3) {
+		.x = fabsf(box.max.x - box.min.x),
+		.y = fabsf(box.max.y - box.min.y),
+		.z = fabsf(box.max.z - box.min.z)
+	};	
+}
+
+float BoxSurfaceArea(BoundingBox box) {
+	Vector3 size = (Vector3) BoxExtent(box);
+    return (size.x * size.y + size.x * size.z + size.z * size.x);
+}
+
+Vector3 BoxCenter(BoundingBox box) {
+	Vector3 size = (Vector3) BoxExtent(box);
+	return (Vector3) {
+		box.max.x - size.x * 0.5f,
+		box.max.y - size.y * 0.5f,
+		box.max.z - size.z * 0.5f
+	};
+}
+
 Tri *MeshToTris(Mesh mesh, u32 *tri_count) {
 	u32 count = mesh.triangleCount;
 	*tri_count = count;
@@ -141,6 +163,7 @@ void BvhConstruct(Map *map) {
 
 	BvhNodeUpdateBounds(map, 0);
 	BvhNodeSubdivide(map, 0);
+	//BvhNodeSubdivideSah(map, 0);
 }
 
 void BvhNodeUpdateBounds(Map *map, u16 node_id) {
@@ -245,11 +268,173 @@ void BvhNodeSubdivide(Map *map, u16 root_id) {
 	BvhNodeSubdivide(map, node_id_rgt);
 }
 
-void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, u16 *tri_tests) {
+void BvhNodeSubdivideSah(Map *map, u16 root_id) {
+	printf("BvhNodeSubdivideSah()...\n");
+
+	BvhNode *node = &map->bvh_nodes[root_id];
+
+	// Stop recursion
+	if(node->tri_count <= MAX_TRIS_PER_NODE) return;
+
+	float3 vals_min = Vector3ToFloatV(node->bounds.min);
+
+	// Calculate axis distances 
+	Vector3 v_extent = (Vector3) {
+		fabsf(node->bounds.max.x - node->bounds.min.x),	
+		fabsf(node->bounds.max.y - node->bounds.min.y),	
+		fabsf(node->bounds.max.z - node->bounds.min.z)	
+	};
+
+	float3 extent = Vector3ToFloatV(v_extent);
+
+	// Find longest axis distance to use for split
+	short best_axis = -1;
+	float best_pos = 0;
+	float best_cost = 1e30f;
+
+	for(short axis = 0; axis < 3; axis++) {
+		for(u16 i = 0; i < node->tri_count; i++) {
+			u16 tri_id = map->tri_ids[node->first_tri + i];		
+			Tri *tri = &map->tris[map->tri_ids[tri_id]];
+			
+			Vector3 centroid = TriCentroid(tri);
+			float3 c = Vector3ToFloatV(centroid);
+
+			float canditate_pos = c.v[axis]; 
+			float cost = SahEval(map, node, root_id, axis, canditate_pos);
+
+			if(cost < best_cost) { 
+				best_cost = cost;
+				best_axis = axis;
+				best_pos = canditate_pos;
+			}
+		}
+	}
+
+	//printf("best cost: %f\n", best_cost);
+	//printf("best axis: %d\n", best_axis);
+	//printf("best pos: %f\n", best_pos);
+
+	short split_axis = best_axis;
+	float split_pos = best_pos;
+
+	// In-place partition
+	u16 i = node->first_tri;
+	u16 j = i + node->tri_count - 1;
+	while(i <= j) {
+		Tri *tri = &map->tris[map->tri_ids[i]];
+		
+		Vector3 centroid = TriCentroid(tri);
+		float3 c = Vector3ToFloatV(centroid);
+
+		if(c.v[split_axis] < split_pos) { 
+			i++;
+		} else {
+			// Swap with tri with tri at end of list
+			SwapTriIds(&map->tri_ids[i], &map->tri_ids[j--]);
+		}
+	}	
+	
+	// Cancel splitting if either side is empty 
+	u16 count_lft = i - node->first_tri;  
+	if(count_lft == 0 || count_lft == node->tri_count) return;
+
+	// Create child nodes
+	u16 node_id_lft = map->bvh_node_count++;
+	u16 node_id_rgt = map->bvh_node_count++;
+
+	map->bvh_nodes[node_id_lft] = (BvhNode) {
+		.bounds = node->bounds,
+		.first_tri = node->first_tri,
+		.tri_count = count_lft,
+		.child_lft = 0,
+		.child_rgt = 0
+	};
+	node->child_lft = node_id_lft;
+
+	map->bvh_nodes[node_id_rgt] = (BvhNode) {
+		.bounds = node->bounds,
+		.first_tri = i,
+		.tri_count = node->tri_count - count_lft,
+		.child_lft = 0,
+		.child_rgt = 0
+	};
+
+	node->tri_count = 0;
+
+	BvhNodeUpdateBounds(map, node_id_lft);
+	BvhNodeUpdateBounds(map, node_id_rgt);
+
+	BvhNodeSubdivideSah(map, node_id_lft);
+	BvhNodeSubdivideSah(map, node_id_rgt);
+}
+
+float SahEval(Map *map, BvhNode *node, u16 node_id, short axis, float pos) {
+	printf("SahEval()...\n");
+
+	BoundingBox bounds_lft = (BoundingBox) node->bounds, bounds_rgt = node->bounds;
+	u16 count_lft = 0, count_rgt = 0;
+	
+	for(u16 i = 0; i < node->tri_count; i++) {
+		u16 tri_id = map->tri_ids[node->first_tri + i];
+		Tri *tri = &map->tris[tri_id];
+
+		Vector3 centroid = TriCentroid(tri);
+		float3 c = Vector3ToFloatV(centroid);
+
+		if(c.v[axis] < pos) {
+			count_lft++;
+
+			BoundsGrow(bounds_lft, tri->vertices[0]);
+			BoundsGrow(bounds_lft, tri->vertices[1]);
+			BoundsGrow(bounds_lft, tri->vertices[2]);
+
+		} else {
+			count_rgt++;
+
+			BoundsGrow(bounds_rgt, tri->vertices[0]);
+			BoundsGrow(bounds_rgt, tri->vertices[1]);
+			BoundsGrow(bounds_rgt, tri->vertices[2]);
+		}
+
+	}
+
+	float cost = count_lft * BoxSurfaceArea(bounds_lft) + count_rgt * BoxSurfaceArea(bounds_rgt);
+
+	float r = (cost > 0) ? cost : 1e30f;
+	printf("cost: %f\n", r);
+
+	return r;
+}
+
+void BoundsGrow(BoundingBox bounds, Vector3 point) {
+	bounds.min = (Vector3) {  FLT_MAX,  FLT_MAX,  FLT_MAX };	
+	bounds.max = (Vector3) { -FLT_MAX, -FLT_MAX, -FLT_MAX };
+
+	for(short j = 0; j < 3; j++) {
+		bounds.min = (Vector3) {
+			fminf(bounds.min.x, point.x),
+			fminf(bounds.min.y, point.y),
+			fminf(bounds.min.z, point.z),
+		};
+
+		bounds.max = (Vector3) {
+			fmaxf(bounds.max.x, point.x),
+			fmaxf(bounds.max.y, point.y),
+			fmaxf(bounds.max.z, point.z),
+		};
+	}
+}
+
+void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, u16 *tri_tests, u16 *branch_hits, u16 *branch_count, float *max_dist) {
 	BvhNode *node = &map->bvh_nodes[root_node];
 
 	RayCollision coll = GetRayCollisionBox(ray, node->bounds);	
 	if(!coll.hit) return;
+
+	if(coll.distance < *max_dist) {
+		*max_dist = coll.distance;
+	}
 
 	bool is_leaf = ((node->child_lft + node->child_rgt) == 0);
 	if(is_leaf) {
@@ -277,8 +462,10 @@ void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, 
 
 		return;
 	}		
-	
-	BvhTraceNodes(ray, node->child_lft, hits, hit_count, map, tri_tests);
-	BvhTraceNodes(ray, node->child_rgt, hits, hit_count, map, tri_tests);
+
+	branch_hits[(*branch_count)++] = root_node;
+
+	BvhTraceNodes(ray, node->child_lft, hits, hit_count, map, tri_tests, branch_hits, branch_count, max_dist);
+	BvhTraceNodes(ray, node->child_rgt, hits, hit_count, map, tri_tests, branch_hits, branch_count, max_dist);
 }
 

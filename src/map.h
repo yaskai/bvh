@@ -44,13 +44,23 @@ void MapClose(Map *map);
 Vector3 FaceNormal(Vector3 *vertices);
 Vector3 TriCentroid(Tri *tri);
 
+Vector3 BoxExtent(BoundingBox box);
+float BoxSurfaceArea(BoundingBox box);
+Vector3 BoxCenter(BoundingBox box);
+
 Tri *MeshToTris(Mesh mesh, u32 *tri_count); 
 Tri *ModelToTris(Model model, u32 *tri_count, u16 **tri_ids);
 
 void BvhConstruct(Map *map);
 void BvhNodeUpdateBounds(Map *map, u16 node_id);
+
 void BvhNodeSubdivide(Map *map, u16 root_id);
 
-void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, u16 *tri_tests);
+void BvhNodeSubdivideSah(Map *map, u16 root_id);
+float SahEval(Map *map, BvhNode *node, u16 node_id, short axis, float pos);
+
+void BoundsGrow(BoundingBox bounds, Vector3 point);
+
+void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, u16 *tri_tests, u16 *branch_hits, u16 *branch_count, float *max_dist);
 
 #endif
