@@ -7,18 +7,27 @@
 #include "raymath.h"
 #include "map.h"
 
+void SwapTriIds(u16 *a, u16 *b) {
+	u16 temp = *a;
+	*a = *b;
+	*b = temp;
+} 
+
 void MapInit(Map *map, char *map_path) {
 	map->model = LoadModel(TextFormat("resources/%s", map_path));
-	map->tris = ModelToTris(map->model, &map->tri_count);
+		
+	map->tri_ids = NULL;
+	map->tris = ModelToTris(map->model, &map->tri_count, &map->tri_ids);
 
 	printf("mesh count: %d\n", map->model.meshCount);
 	printf("tri count: %d\n", map->tri_count);
 
-	map->bvh_node_capacity = 2048;
+	map->bvh_node_capacity = 4096;
 	map->bvh_nodes = calloc(map->bvh_node_capacity, sizeof(BvhNode));
 
-	//map->bvh_nodes[0] = MakeBvhNode(map->tris, map->tri_count, &map->bvh_node_count);
 	BvhConstruct(map);
+
+	printf("bvh node count: %d\n", map->bvh_node_count);
 }
 
 void MapClose(Map *map) {
@@ -26,6 +35,20 @@ void MapClose(Map *map) {
 
 	free(map->tris);
 	free(map->bvh_nodes);
+}
+
+Vector3 TriCentroid(Tri *tri) {
+	return (Vector3) {
+		.x = (tri->vertices[0].x + tri->vertices[1].x + tri->vertices[2].x) * 0.33f,
+		.y = (tri->vertices[0].y + tri->vertices[1].y + tri->vertices[2].y) * 0.33f,
+		.z = (tri->vertices[0].z + tri->vertices[1].z + tri->vertices[2].z) * 0.33f
+	};
+}
+
+Vector3 FaceNormal(Vector3 *vertices) {
+	Vector3 u = Vector3Subtract(vertices[1], vertices[0]);
+	Vector3 v = Vector3Subtract(vertices[2], vertices[0]);
+	return Vector3Normalize(Vector3CrossProduct(u, v));
 }
 
 Tri *MeshToTris(Mesh mesh, u32 *tri_count) {
@@ -43,12 +66,6 @@ Tri *MeshToTris(Mesh mesh, u32 *tri_count) {
 			mesh.indices[i * 3 + 2]
 		};
 
-		tri.normal = (Vector3) {
-			.x = mesh.normals[i * 3 + 0],
-			.y = mesh.normals[i * 3 + 1],
-			.z = mesh.normals[i * 3 + 2]
-		};
-
 		for(u8 j = 0; j < 3; j++) {
 			u32 id = indices[j]; 
 
@@ -59,15 +76,18 @@ Tri *MeshToTris(Mesh mesh, u32 *tri_count) {
 			};
 		}
 
+		tri.normal = FaceNormal(tri.vertices);
 		tris[i] = tri;
 	}
 
 	return tris;
 }
 
-Tri *ModelToTris(Model model, u32 *tri_count) {
+Tri *ModelToTris(Model model, u32 *tri_count, u16 **tri_ids) {
 	u32 count = 0;
+
 	Tri *tris = NULL;
+	u16 *ids = NULL;
 
 	for(u32 i = 0; i < model.meshCount; i++) {
 		u32 temp_count = 0;
@@ -76,21 +96,21 @@ Tri *ModelToTris(Model model, u32 *tri_count) {
 		count += temp_count;
 
 		tris = realloc(tris, sizeof(Tri) * count);
-		
+		ids = realloc(ids, sizeof(u16) * count);
+
+		for(u16 j = 0; j < temp_count; j++) {
+			u16 id = count - temp_count + j;
+			ids[id] = id;
+		}
+
 		memcpy(tris + count - temp_count, temp_tris, sizeof(Tri) * temp_count);
 		free(temp_tris);
 	}
 
+	*tri_ids = ids;
+
 	*tri_count = count;
 	return tris;
-}
-
-Vector3 TriCentroid(Tri *tri) {
-	return (Vector3) {
-		.x = (tri->vertices[0].x + tri->vertices[1].x + tri->vertices[2].x) * 0.33f,
-		.y = (tri->vertices[0].y + tri->vertices[1].y + tri->vertices[2].y) * 0.33f,
-		.z = (tri->vertices[0].z + tri->vertices[1].z + tri->vertices[2].z) * 0.33f
-	};
 }
 
 void BvhConstruct(Map *map) {
@@ -102,7 +122,7 @@ void BvhConstruct(Map *map) {
 	root_node.bounds.max = Vector3Scale(Vector3One(), -FLT_MAX);
 
 	for(u16 i = 0; i < map->tri_count; i++) {
-		Tri *tri = &map->tris[i];
+		Tri *tri = &map->tris[map->tri_ids[i]];
 
 		for(u8 j = 0; j < 3; j++) {
 			root_node.bounds.min = Vector3Min(tri->vertices[j], root_node.bounds.min);
@@ -114,31 +134,46 @@ void BvhConstruct(Map *map) {
 	root_node.first_tri = 0;
 	root_node.tri_count = map->tri_count;	
 
-	root_node.child_left = 0;
-	root_node.child_right = 0;
+	root_node.child_lft = 0;
+	root_node.child_rgt = 0;
 
-	map->bvh_nodes[0] = root_node;
+	map->bvh_nodes[map->bvh_node_count++] = root_node;
+
+	BvhNodeUpdateBounds(map, 0);
+	BvhNodeSubdivide(map, 0);
 }
 
 void BvhNodeUpdateBounds(Map *map, u16 node_id) {
 	BvhNode *node = &map->bvh_nodes[node_id];
 
-	node->bounds.min = (Vector3) {  FLT_MAX };	
-	node->bounds.max = (Vector3) { -FLT_MAX };
+	node->bounds.min = (Vector3) {  FLT_MAX,  FLT_MAX,  FLT_MAX };	
+	node->bounds.max = (Vector3) { -FLT_MAX, -FLT_MAX, -FLT_MAX };
 
 	for(u16 i = 0; i < node->tri_count; i++) {
-		u16 tri_id = node->first_tri + i;
+		u16 tri_id = map->tri_ids[node->first_tri + i];
 		Tri *tri = &map->tris[tri_id];
 
 		for(short j = 0; j < 3; j++) {
-			node->bounds.min = Vector3Min(node->bounds.min, tri->vertices[j]);
-			node->bounds.max = Vector3Max(node->bounds.max, tri->vertices[j]);
+			node->bounds.min = (Vector3) {
+				fminf(node->bounds.min.x, tri->vertices[j].x),
+				fminf(node->bounds.min.y, tri->vertices[j].y),
+				fminf(node->bounds.min.z, tri->vertices[j].z),
+			};
+
+			node->bounds.max = (Vector3) {
+				fmaxf(node->bounds.max.x, tri->vertices[j].x),
+				fmaxf(node->bounds.max.y, tri->vertices[j].y),
+				fmaxf(node->bounds.max.z, tri->vertices[j].z),
+			};
 		}
 	}
 }
 
 void BvhNodeSubdivide(Map *map, u16 root_id) {
 	BvhNode *node = &map->bvh_nodes[root_id];
+
+	// Stop recursion
+	if(node->tri_count <= MAX_TRIS_PER_NODE) return;
 
 	float3 vals_min = Vector3ToFloatV(node->bounds.min);
 
@@ -158,11 +193,11 @@ void BvhNodeSubdivide(Map *map, u16 root_id) {
 
 	float split_pos = vals_min.v[split_axis] + (extent.v[split_axis] * 0.5f);
 
+	// In-place partition
 	u16 i = node->first_tri;
 	u16 j = i + node->tri_count - 1;
-
 	while(i <= j) {
-		Tri *tri = &map->tris[i];
+		Tri *tri = &map->tris[map->tri_ids[i]];
 		
 		Vector3 centroid = TriCentroid(tri);
 		float3 c = Vector3ToFloatV(centroid);
@@ -171,9 +206,79 @@ void BvhNodeSubdivide(Map *map, u16 root_id) {
 			i++;
 		} else {
 			// Swap with tri with tri at end of list
+			SwapTriIds(&map->tri_ids[i], &map->tri_ids[j--]);
 		}
-		
 	}	
+	
+	// Cancel splitting if either side is empty 
+	u16 count_lft = i - node->first_tri;  
+	if(count_lft == 0 || count_lft == node->tri_count) return;
 
+	// Create child nodes
+	u16 node_id_lft = map->bvh_node_count++;
+	u16 node_id_rgt = map->bvh_node_count++;
+
+	map->bvh_nodes[node_id_lft] = (BvhNode) {
+		.bounds = node->bounds,
+		.first_tri = node->first_tri,
+		.tri_count = count_lft,
+		.child_lft = 0,
+		.child_rgt = 0
+	};
+	node->child_lft = node_id_lft;
+
+	map->bvh_nodes[node_id_rgt] = (BvhNode) {
+		.bounds = node->bounds,
+		.first_tri = i,
+		.tri_count = node->tri_count - count_lft,
+		.child_lft = 0,
+		.child_rgt = 0
+	};
+	node->child_rgt = node_id_rgt;
+
+	node->tri_count = 0;
+
+	BvhNodeUpdateBounds(map, node_id_lft);
+	BvhNodeUpdateBounds(map, node_id_rgt);
+
+	BvhNodeSubdivide(map, node_id_lft);
+	BvhNodeSubdivide(map, node_id_rgt);
+}
+
+void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, u16 *tri_tests) {
+	BvhNode *node = &map->bvh_nodes[root_node];
+
+	RayCollision coll = GetRayCollisionBox(ray, node->bounds);	
+	if(!coll.hit) return;
+
+	bool is_leaf = ((node->child_lft + node->child_rgt) == 0);
+	if(is_leaf) {
+		bool tri_hit = false;
+		u16 tests = 0;
+
+		for(u16 i = 0; i < node->tri_count; i++) {
+			u16 tri_id = map->tri_ids[node->first_tri + i];
+			Tri *tri = &map->tris[tri_id];
+
+			tests++;
+
+			coll = GetRayCollisionTriangle(ray, tri->vertices[0], tri->vertices[1], tri->vertices[2]);
+
+			if(coll.hit) {
+				tri_hit = true;
+				break;
+			}
+		}
+
+		*tri_tests += tests;
+
+		if(tri_hit) 
+			hits[(*hit_count)++] = root_node;
+
+		return;
+	}		
+	
+	BvhTraceNodes(ray, node->child_lft, hits, hit_count, map, tri_tests);
+	BvhTraceNodes(ray, node->child_rgt, hits, hit_count, map, tri_tests);
 }
 

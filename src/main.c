@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdlib.h>
 #include "raylib.h"
 #include "raymath.h"
 #include "map.h"
@@ -8,11 +9,14 @@
 #define CAM_MAX_PITCH		(89.0f * DEG2RAD) 
 #define CAM_SPEED			10.0f
 
+#define VIS_NODE_CAP		128
+
 // For first-person camera movment
 // Pitch, yaw, roll
 float cam_p, cam_y, cam_r;
 
 void CameraControls(Camera3D *cam, float dt);
+void VirtCameraControls(Camera3D *cam, float dt);
 
 Material default_mat;
 
@@ -26,37 +30,59 @@ int main() {
 	DisableCursor();
 	
 	Camera3D camera = (Camera3D) {
-		.position = (Vector3) { 0, 10, 0 },
-		.target = (Vector3) { 0, 0, -10 },
+		.position = (Vector3) { 30, 30, 30 },
+		.target = (Vector3) { 0, 0, 0 },
 		.up = (Vector3) CAM_UP,
 		.fovy = 90,
 		.projection = CAMERA_PERSPECTIVE
 	};
 
+	Camera3D virt_cam = camera;
+
 	Map map = (Map) {0};
 
 	char *map_name = "HyruleField.glb";
+	//char *map_name = "hangar.glb";
 	MapInit(&map, map_name);
 
 	default_mat = LoadMaterialDefault();
 
 	Font font = LoadFont("resources/fonts/v5easter.ttf");
-	//Font font = LoadFontEx("resources/fonts/blex.ttf", 24, 0, 0);
+
+	RenderTexture rt = LoadRenderTexture(640, 480);
+
+	Vector3 cam_dir;
+	Vector3 ray_pos;
+	Vector3 ray_dest;
+
+	u16 *vis_nodes = calloc(VIS_NODE_CAP, sizeof(u16));
+	u16 vis_node_count = 0;
+	u16 tri_tests = 0;
 
 	while(!WindowShouldClose()) {
 		float delta_time = GetFrameTime();
 
 		CameraControls(&camera, delta_time);
+		VirtCameraControls(&virt_cam, delta_time);
+		cam_dir = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+
+		ray_pos = Vector3Add(camera.position, Vector3Scale(cam_dir, 0));
+		Ray ray = (Ray) { .position = ray_pos, .direction = cam_dir };
+
+		vis_node_count = 0;
+		tri_tests = 0;
+		BvhTraceNodes(ray, 0, vis_nodes, &vis_node_count, &map, &tri_tests);
 
 		BeginDrawing();
+
+		BeginTextureMode(rt);
 		ClearBackground(BLACK);
 
-		BeginMode3D(camera);
-		
-		DrawModel(map.model, Vector3Zero(), 1, WHITE);
+		BeginMode3D(virt_cam);
 
+		/*
 		for(u32 i = 0; i < map.tri_count; i++) { 
-			Tri *tri = &map.tris[i];
+			Tri *tri = &map.tris[map.tri_ids[i]];
 
 			Color norm_color = (Color) {
 				.r = tri->normal.x * 255, 
@@ -69,7 +95,7 @@ int main() {
 				tri->vertices[0],
 				tri->vertices[1],
 				tri->vertices[2],
-				ColorAlpha(norm_color, 0.25f)
+				ColorAlpha(DARKGRAY, 1.0f)
 				);
 
 			DrawLine3D(tri->vertices[0], tri->vertices[1], SKYBLUE);
@@ -80,18 +106,81 @@ int main() {
 			Vector3 norm_dest = Vector3Add(norm_start, Vector3Scale(tri->normal, 1));
 			DrawLine3D(norm_start, norm_dest, norm_color);
 		}
+		*/
 
-		DrawBoundingBox(map.bvh_nodes[0].bounds, RED);
-	
+		//DrawModelWires(map.model, Vector3Zero(), 1, DARKGREEN);
+		DrawModel(map.model, Vector3Zero(), 1, ColorAlpha(DARKGRAY, 1.0f));
+
+		/*
+		for(u16 i = 0; i < map.bvh_node_count; i++) {
+			BvhNode *node = &map.bvh_nodes[i];
+
+			bool is_leaf = (node->tri_count > 0);
+			if(!is_leaf) continue;
+
+			DrawBoundingBox(node->bounds, DARKGRAY);
+		}
+		*/
+
+		for(u16 i = 0; i < vis_node_count; i++) {
+			BvhNode *node = &map.bvh_nodes[vis_nodes[i]];
+			DrawBoundingBox(node->bounds, PINK);
+
+			for(u16 i = 0; i < node->tri_count; i++) {
+				u16 tri_id = map.tri_ids[node->first_tri + i];
+				Tri *tri = &map.tris[tri_id];
+
+				Color norm_color = (Color) {
+					.r = tri->normal.x * 255, 
+					.g = tri->normal.y * 255, 
+					.b = tri->normal.z * 255,
+					.a = 255
+				};
+
+				DrawTriangle3D(
+					tri->vertices[0],
+					tri->vertices[1],
+					tri->vertices[2],
+					norm_color
+				);
+
+				DrawLine3D(tri->vertices[0], tri->vertices[1], SKYBLUE);
+				DrawLine3D(tri->vertices[1], tri->vertices[2], SKYBLUE);
+				DrawLine3D(tri->vertices[2], tri->vertices[0], SKYBLUE);
+			}
+		}
+
+		DrawRay(ray, SKYBLUE);
+
+		EndMode3D();
+		EndTextureMode();
+
+		ClearBackground(BLACK);
+
+		BeginMode3D(camera);
+		
+		DrawModel(map.model, Vector3Zero(), 1, WHITE);
+
 		//DrawMesh(map.model.meshes[i], default_mat, MatrixIdentity());	
 		//DrawModelWires(map.model, Vector3Zero(), 1, BLACK);
 
-		//DrawSphere(map.mid, 1, RED);
-
 		EndMode3D();
+
+		DrawTexturePro(
+			rt.texture,
+			(Rectangle) { 0, 0, rt.texture.width, -rt.texture.height },
+			(Rectangle) { 0, 0, rt.texture.width, rt.texture.height},
+			Vector2Zero(), 
+			0, 
+			WHITE
+		);
 
 		DrawTextEx(font, TextFormat("fps: %d", GetFPS()), (Vector2) { 0, 0 }, 32, 1, LAVENDER);
 		DrawTextEx(font, TextFormat("file: %s", map_name), (Vector2) { 0, 40 }, 32, 1, LAVENDER);
+		DrawTextEx(font, TextFormat("node hits: %d", vis_node_count), (Vector2) { 0, 80 }, 32, 1, LAVENDER);
+
+		float tri_percent = (tri_tests > 0) ? ((float)tri_tests / map.tri_count) * 100.0f : 0; 
+		DrawTextEx(font, TextFormat("tri tests: %d/%d, %%%.2f", tri_tests, map.tri_count, tri_percent), (Vector2) { 0, 120 }, 32, 1, LAVENDER);
 
 		EndDrawing();
 	}
@@ -127,3 +216,21 @@ void CameraControls(Camera3D *cam, float dt) {
 	cam->target = Vector3Add(cam->target, movement);
 }
 
+void VirtCameraControls(Camera3D *cam, float dt) {
+	Vector3 forward = Vector3Normalize(Vector3Subtract(cam->target, cam->position)); 
+	Vector3 right = Vector3CrossProduct(forward, CAM_UP);
+	
+	Vector3 movement = Vector3Zero();	
+
+	movement = Vector3Add(movement, Vector3Scale(forward, GetMouseWheelMove()));
+
+	if(IsKeyDown(KEY_UP)) 		movement = Vector3Add(movement, CAM_UP);
+	if(IsKeyDown(KEY_RIGHT)) 	movement = Vector3Add(movement, right);
+	if(IsKeyDown(KEY_DOWN))		movement = Vector3Subtract(movement, CAM_UP);
+	if(IsKeyDown(KEY_LEFT))		movement = Vector3Subtract(movement, right);
+
+	movement = Vector3Scale(movement, CAM_SPEED * dt);
+
+	cam->position = Vector3Add(cam->position, movement);
+	cam->target = Vector3Add(cam->target, movement);
+}
