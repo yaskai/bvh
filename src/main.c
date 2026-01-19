@@ -131,7 +131,7 @@ int main() {
 
 		for(u16 i = 0; i < branch_hit_count; i++) {
 			BvhNode *node = &map.bvh_nodes[branch_hits[i]];
-			DrawBoundingBox(node->bounds, ColorAlpha(DARKGREEN, 0.5f));
+			DrawBoundingBox(node->bounds, ColorAlpha(DARKGREEN, 0.85f));
 		}
 		
 		for(u16 i = 0; i < vis_node_count; i++) {
@@ -172,6 +172,7 @@ int main() {
 		}
 
 		DrawRay(ray, SKYBLUE);
+		DrawSphere(Vector3Add(ray.position, Vector3Scale(ray.direction, max_dist)), 0.1f, SKYBLUE);
 
 		EndMode3D();
 		EndTextureMode();

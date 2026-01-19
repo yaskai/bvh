@@ -432,12 +432,15 @@ void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, 
 	RayCollision coll = GetRayCollisionBox(ray, node->bounds);	
 	if(!coll.hit) return;
 
-	if(coll.distance < *max_dist) {
-		*max_dist = coll.distance;
-	}
+	if(*hit_count >= 2) return;
+
+	if(coll.distance > *max_dist) return;
+	*max_dist = fminf(*max_dist, coll.distance + BoxSurfaceArea(node->bounds));
 
 	bool is_leaf = ((node->child_lft + node->child_rgt) == 0);
 	if(is_leaf) {
+		//*max_dist = Clamp(*max_dist, 0, coll.distance);
+
 		bool tri_hit = false;
 		u16 tests = 0;
 
@@ -445,11 +448,14 @@ void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, 
 			u16 tri_id = map->tri_ids[node->first_tri + i];
 			Tri *tri = &map->tris[tri_id];
 
+			if(Vector3Distance(TriCentroid(tri), ray.position) > *max_dist) continue;
+
 			tests++;
 
 			coll = GetRayCollisionTriangle(ray, tri->vertices[0], tri->vertices[1], tri->vertices[2]);
 
 			if(coll.hit) {
+				*max_dist = fminf(*max_dist, coll.distance + EPSILON);
 				tri_hit = true;
 				break;
 			}

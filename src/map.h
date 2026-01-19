@@ -4,7 +4,7 @@
 #ifndef MAP_H_
 #define MAP_H_
 
-#define MAX_TRIS_PER_NODE	2
+#define MAX_TRIS_PER_NODE	8
 
 typedef struct {
 	Vector3 vertices[3];
