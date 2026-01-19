@@ -46,6 +46,6 @@ void BvhConstruct(Map *map);
 void BvhNodeUpdateBounds(Map *map, u16 node_id);
 void BvhNodeSubdivide(Map *map, u16 root_id);
 
-Vector3 TriCenter(Tri *tri);
+Vector3 TriCentroid(Tri *tri);
 
 #endif

@@ -76,7 +76,7 @@ int main() {
 			DrawLine3D(tri->vertices[1], tri->vertices[2], SKYBLUE);
 			DrawLine3D(tri->vertices[2], tri->vertices[0], SKYBLUE);
 
-			Vector3 norm_start = TriCenter(tri);
+			Vector3 norm_start = TriCentroid(tri);
 			Vector3 norm_dest = Vector3Add(norm_start, Vector3Scale(tri->normal, 1));
 			DrawLine3D(norm_start, norm_dest, norm_color);
 		}
