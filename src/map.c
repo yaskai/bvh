@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <float.h>
@@ -170,6 +171,14 @@ void BvhConstruct(Map *map) {
 	
 	map->build_time = (GetTime() - _t_start); 
 	map->build_complete = 1;
+
+	printf("bvh node count: %d\n", map->bvh_node_count);
+	
+	map->bvh_node_capacity = map->bvh_node_count;
+	map->bvh_nodes = realloc(map->bvh_nodes, sizeof(BvhNode) * map->bvh_node_capacity);
+
+	size_t mem_usage = sizeof(BvhNode) * map->bvh_node_capacity;
+	printf("memory usage: %zukb\n", mem_usage / 1000);
 }
 
 void BvhNodeUpdateBounds(Map *map, u16 node_id) {
