@@ -45,8 +45,9 @@ int main() {
 
 	Map map = (Map) {0};
 
-	char *map_name = "HyruleField.glb";
+	//char *map_name = "HyruleField.glb";
 	//char *map_name = "e1m1.glb";
+	char *map_name = "kokiri_forest.glb";
 	MapInit(&map, map_name);
 
 	pthread_t thread1;
@@ -115,7 +116,8 @@ int main() {
 				bool is_leaf = (node->tri_count > 0);
 				if(!is_leaf) continue;
 
-				DrawBoundingBox(node->bounds, ColorAlpha(GREEN, 0.85f));
+				Color color = (is_leaf) ? GREEN : DARKGREEN;
+				DrawBoundingBox(node->bounds, ColorAlpha(color, 0.85f));
 			}
 		} else {
 			for(u16 i = 0; i < branch_hit_count; i++) {
