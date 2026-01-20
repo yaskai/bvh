@@ -34,8 +34,7 @@ void MapInit(Map *map, char *map_path) {
 	printf("mesh count: %d\n", map->model.meshCount);
 	printf("tri count: %d\n", map->tri_count);
 
-	//map->bvh_node_capacity = 4;
-	map->bvh_node_capacity = 1024;
+	map->bvh_node_capacity = 4096;
 	map->bvh_nodes = calloc(map->bvh_node_capacity, sizeof(BvhNode));
 
 	BvhConstruct(map);
@@ -65,12 +64,16 @@ Vector3 FaceNormal(Vector3 *vertices) {
 }
 
 Vector3 BoxExtent(BoundingBox box) {
-	return Vector3Subtract(box.max, box.min);
+	return (Vector3) {
+		.x = fabsf(box.max.x - box.min.x),
+		.y = fabsf(box.max.y - box.min.y),
+		.z = fabsf(box.max.z - box.min.z)
+	};	
 }
 
 float BoxSurfaceArea(BoundingBox box) {
-	Vector3 e = (Vector3) BoxExtent(box);
-	return (e.x * e.y + e.y * e.z + e.z * e.x);
+	Vector3 size = (Vector3) BoxExtent(box);
+    return (size.x * size.y + size.x * size.z + size.z * size.x);
 }
 
 Vector3 BoxCenter(BoundingBox box) {
@@ -171,11 +174,11 @@ void BvhConstruct(Map *map) {
 	map->bvh_nodes[map->bvh_node_count++] = root_node;
 
 	BvhNodeUpdateBounds(map, 0);
-	//BvhNodeSubdivide(map, 0);
-	BvhNodeSubdivideSah(map, 0);
+	BvhNodeSubdivide(map, 0);
+	//BvhNodeSubdivideSah(map, 0);
 
-	//u16 d = NodeDepth(&map->bvh_nodes[0], map);
-	//printf("depth: %d\n", d);
+	u16 d = NodeDepth(&map->bvh_nodes[0], map);
+	printf("depth: %d\n", d);
 }
 
 void BvhNodeUpdateBounds(Map *map, u16 node_id) {
@@ -249,11 +252,6 @@ void BvhNodeSubdivide(Map *map, u16 root_id) {
 	u16 count_lft = i - node->first_tri;  
 	if(count_lft == 0 || count_lft == node->tri_count) return;
 
-	if(map->bvh_node_count + 2 >= map->bvh_node_capacity) {
-		map->bvh_node_capacity = (map->bvh_node_capacity << 1);
-		map->bvh_nodes = realloc(map->bvh_nodes, sizeof(BvhNode) * map->bvh_node_capacity);
-	}
-
 	// Create child nodes
 	u16 node_id_lft = map->bvh_node_count++;
 	u16 node_id_rgt = map->bvh_node_count++;
@@ -286,10 +284,23 @@ void BvhNodeSubdivide(Map *map, u16 root_id) {
 }
 
 void BvhNodeSubdivideSah(Map *map, u16 root_id) {
+	printf("BvhNodeSubdivideSah()...\n");
+
 	BvhNode *node = &map->bvh_nodes[root_id];
 
 	// Stop recursion
 	if(node->tri_count <= MAX_TRIS_PER_NODE) return;
+
+	float3 vals_min = Vector3ToFloatV(node->bounds.min);
+
+	// Calculate axis distances 
+	Vector3 v_extent = (Vector3) {
+		fabsf(node->bounds.max.x - node->bounds.min.x),	
+		fabsf(node->bounds.max.y - node->bounds.min.y),	
+		fabsf(node->bounds.max.z - node->bounds.min.z)	
+	};
+
+	float3 extent = Vector3ToFloatV(v_extent);
 
 	// Find longest axis distance to use for split
 	short best_axis = -1;
@@ -299,13 +310,13 @@ void BvhNodeSubdivideSah(Map *map, u16 root_id) {
 	for(short axis = 0; axis < 3; axis++) {
 		for(u16 i = 0; i < node->tri_count; i++) {
 			u16 tri_id = map->tri_ids[node->first_tri + i];		
-			Tri *tri = &map->tris[tri_id];
+			Tri *tri = &map->tris[map->tri_ids[tri_id]];
 			
 			Vector3 centroid = TriCentroid(tri);
 			float3 c = Vector3ToFloatV(centroid);
 
 			float canditate_pos = c.v[axis]; 
-			float cost = SahEval(map, node, axis, canditate_pos);
+			float cost = SahEval(map, node, root_id, axis, canditate_pos);
 
 			if(cost < best_cost) { 
 				best_cost = cost;
@@ -315,12 +326,12 @@ void BvhNodeSubdivideSah(Map *map, u16 root_id) {
 		}
 	}
 
+	//printf("best cost: %f\n", best_cost);
+	//printf("best axis: %d\n", best_axis);
+	//printf("best pos: %f\n", best_pos);
+
 	short split_axis = best_axis;
 	float split_pos = best_pos;
-
-	float parent_area = BoxSurfaceArea(node->bounds);
-	float parent_cost = parent_area;
-	//if(best_cost >= parent_cost) return;
 
 	// In-place partition
 	u16 i = node->first_tri;
@@ -343,11 +354,6 @@ void BvhNodeSubdivideSah(Map *map, u16 root_id) {
 	u16 count_lft = i - node->first_tri;  
 	if(count_lft == 0 || count_lft == node->tri_count) return;
 
-	if(map->bvh_node_count + 2 >= map->bvh_node_capacity) {
-		map->bvh_node_capacity = (map->bvh_node_capacity << 1);
-		map->bvh_nodes = realloc(map->bvh_nodes, sizeof(BvhNode) * map->bvh_node_capacity);
-	}
-
 	// Create child nodes
 	u16 node_id_lft = map->bvh_node_count++;
 	u16 node_id_rgt = map->bvh_node_count++;
@@ -368,7 +374,6 @@ void BvhNodeSubdivideSah(Map *map, u16 root_id) {
 		.child_lft = 0,
 		.child_rgt = 0
 	};
-	node->child_rgt = node_id_rgt;
 
 	node->tri_count = 0;
 
@@ -379,12 +384,11 @@ void BvhNodeSubdivideSah(Map *map, u16 root_id) {
 	BvhNodeSubdivideSah(map, node_id_rgt);
 }
 
-float SahEval(Map *map, BvhNode *node, short axis, float pos) {
-	BoundingBox bounds_lft = (BoundingBox) {0};
-	BoundingBox bounds_rgt = (BoundingBox) {0};
+float SahEval(Map *map, BvhNode *node, u16 node_id, short axis, float pos) {
+	printf("SahEval()...\n");
 
-	u16 count_lft = 0; 
-	u16 count_rgt = 0;
+	BoundingBox bounds_lft = (BoundingBox) node->bounds, bounds_rgt = node->bounds;
+	u16 count_lft = 0, count_rgt = 0;
 	
 	for(u16 i = 0; i < node->tri_count; i++) {
 		u16 tri_id = map->tri_ids[node->first_tri + i];
@@ -396,37 +400,43 @@ float SahEval(Map *map, BvhNode *node, short axis, float pos) {
 		if(c.v[axis] < pos) {
 			count_lft++;
 
-			BoundsGrow(&bounds_lft, tri->vertices[0]);
-			BoundsGrow(&bounds_lft, tri->vertices[1]);
-			BoundsGrow(&bounds_lft, tri->vertices[2]);
+			BoundsGrow(bounds_lft, tri->vertices[0]);
+			BoundsGrow(bounds_lft, tri->vertices[1]);
+			BoundsGrow(bounds_lft, tri->vertices[2]);
 
 		} else {
 			count_rgt++;
 
-			BoundsGrow(&bounds_rgt, tri->vertices[0]);
-			BoundsGrow(&bounds_rgt, tri->vertices[1]);
-			BoundsGrow(&bounds_rgt, tri->vertices[2]);
+			BoundsGrow(bounds_rgt, tri->vertices[0]);
+			BoundsGrow(bounds_rgt, tri->vertices[1]);
+			BoundsGrow(bounds_rgt, tri->vertices[2]);
 		}
 
 	}
 
 	float cost = count_lft * BoxSurfaceArea(bounds_lft) + count_rgt * BoxSurfaceArea(bounds_rgt);
-	//return (cost > 0) ? cost : 1e30f;
-	return cost;
+
+	float r = (cost > 0) ? cost : 1e30f;
+	printf("cost: %f\n", r);
+
+	return r;
 }
 
-void BoundsGrow(BoundingBox *bounds, Vector3 point) {
+void BoundsGrow(BoundingBox bounds, Vector3 point) {
+	bounds.min = (Vector3) {  FLT_MAX,  FLT_MAX,  FLT_MAX };	
+	bounds.max = (Vector3) { -FLT_MAX, -FLT_MAX, -FLT_MAX };
+
 	for(short j = 0; j < 3; j++) {
-		bounds->min = (Vector3) {
-			fminf(bounds->min.x, point.x),
-			fminf(bounds->min.y, point.y),
-			fminf(bounds->min.z, point.z),
+		bounds.min = (Vector3) {
+			fminf(bounds.min.x, point.x),
+			fminf(bounds.min.y, point.y),
+			fminf(bounds.min.z, point.z),
 		};
 
-		bounds->max = (Vector3) {
-			fmaxf(bounds->max.x, point.x),
-			fmaxf(bounds->max.y, point.y),
-			fmaxf(bounds->max.z, point.z),
+		bounds.max = (Vector3) {
+			fmaxf(bounds.max.x, point.x),
+			fmaxf(bounds.max.y, point.y),
+			fmaxf(bounds.max.z, point.z),
 		};
 	}
 }
@@ -437,33 +447,36 @@ void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, 
 	RayCollision coll = GetRayCollisionBox(ray, node->bounds);	
 	if(!coll.hit) return;
 
+	//if(*hit_count >= 2) return;
+
 	if(coll.distance > *max_dist) return;
+	//*max_dist = fminf(*max_dist, coll.distance + BoxSurfaceArea(node->bounds));
 
 	bool is_leaf = ((node->child_lft + node->child_rgt) == 0);
 	if(is_leaf) {
+		//*max_dist = Clamp(*max_dist, 0, coll.distance);
+
 		bool tri_hit = false;
 		u16 tests = 0;
-		
-		float best_hit_dist = *max_dist;
 
 		for(u16 i = 0; i < node->tri_count; i++) {
 			u16 tri_id = map->tri_ids[node->first_tri + i];
 			Tri *tri = &map->tris[tri_id];
+
+			//if(Vector3Distance(TriCentroid(tri), ray.position) > *max_dist) continue;
 
 			tests++;
 
 			coll = GetRayCollisionTriangle(ray, tri->vertices[0], tri->vertices[1], tri->vertices[2]);
 			if(coll.distance > *max_dist) continue;
 
-			if(coll.hit && coll.distance < best_hit_dist) {
+			if(coll.hit) {
 				*max_dist = fminf(*max_dist, coll.distance + EPSILON);
-				best_hit_dist = coll.distance;
 				tri_hit = true;
-				//break;
+				break;
 			}
 		}
 
-		*max_dist = best_hit_dist;
 		*tri_tests += tests;
 
 		if(tri_hit) 
@@ -474,15 +487,10 @@ void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, 
 
 	branch_hits[(*branch_count)++] = root_node;
 
-	float dist_a = FLT_MAX, dist_b = FLT_MAX;
 
-	RayCollision coll_a = GetRayCollisionBox(ray, map->bvh_nodes[node->child_lft].bounds);
-	RayCollision coll_b = GetRayCollisionBox(ray, map->bvh_nodes[node->child_rgt].bounds);
 
-	if(coll_a.hit) dist_a = coll_a.distance;
-	if(coll_b.hit) dist_b = coll_b.distance;
 
-	if(dist_a < *max_dist) BvhTraceNodes(ray, node->child_lft, hits, hit_count, map, tri_tests, branch_hits, branch_count, max_dist);
-	if(dist_b < *max_dist) BvhTraceNodes(ray, node->child_rgt, hits, hit_count, map, tri_tests, branch_hits, branch_count, max_dist);
+	BvhTraceNodes(ray, node->child_lft, hits, hit_count, map, tri_tests, branch_hits, branch_count, max_dist);
+	BvhTraceNodes(ray, node->child_rgt, hits, hit_count, map, tri_tests, branch_hits, branch_count, max_dist);
 }
 

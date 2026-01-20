@@ -250,7 +250,7 @@ void BvhNodeSubdivide(Map *map, u16 root_id) {
 	if(count_lft == 0 || count_lft == node->tri_count) return;
 
 	if(map->bvh_node_count + 2 >= map->bvh_node_capacity) {
-		map->bvh_node_capacity = (map->bvh_node_capacity << 1);
+		map->bvh_node_capacity *= 2;
 		map->bvh_nodes = realloc(map->bvh_nodes, sizeof(BvhNode) * map->bvh_node_capacity);
 	}
 
@@ -319,8 +319,8 @@ void BvhNodeSubdivideSah(Map *map, u16 root_id) {
 	float split_pos = best_pos;
 
 	float parent_area = BoxSurfaceArea(node->bounds);
-	float parent_cost = parent_area;
-	//if(best_cost >= parent_cost) return;
+	float parent_cost = node->tri_count * parent_area;
+	if(best_cost >= parent_cost) return;
 
 	// In-place partition
 	u16 i = node->first_tri;
@@ -368,7 +368,6 @@ void BvhNodeSubdivideSah(Map *map, u16 root_id) {
 		.child_lft = 0,
 		.child_rgt = 0
 	};
-	node->child_rgt = node_id_rgt;
 
 	node->tri_count = 0;
 
@@ -411,8 +410,7 @@ float SahEval(Map *map, BvhNode *node, short axis, float pos) {
 	}
 
 	float cost = count_lft * BoxSurfaceArea(bounds_lft) + count_rgt * BoxSurfaceArea(bounds_rgt);
-	//return (cost > 0) ? cost : 1e30f;
-	return cost;
+	return (cost > 0) ? cost : 1e30f;
 }
 
 void BoundsGrow(BoundingBox *bounds, Vector3 point) {
@@ -437,10 +435,15 @@ void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, 
 	RayCollision coll = GetRayCollisionBox(ray, node->bounds);	
 	if(!coll.hit) return;
 
+	//if(*hit_count >= 2) return;
+
 	if(coll.distance > *max_dist) return;
+	//*max_dist = fminf(*max_dist, coll.distance + BoxSurfaceArea(node->bounds));
 
 	bool is_leaf = ((node->child_lft + node->child_rgt) == 0);
 	if(is_leaf) {
+		//*max_dist = Clamp(*max_dist, 0, coll.distance);
+
 		bool tri_hit = false;
 		u16 tests = 0;
 		
@@ -450,13 +453,15 @@ void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, 
 			u16 tri_id = map->tri_ids[node->first_tri + i];
 			Tri *tri = &map->tris[tri_id];
 
+			//if(Vector3Distance(TriCentroid(tri), ray.position) > *max_dist) continue;
+
 			tests++;
 
 			coll = GetRayCollisionTriangle(ray, tri->vertices[0], tri->vertices[1], tri->vertices[2]);
 			if(coll.distance > *max_dist) continue;
 
 			if(coll.hit && coll.distance < best_hit_dist) {
-				*max_dist = fminf(*max_dist, coll.distance + EPSILON);
+				//*max_dist = fminf(*max_dist, coll.distance + EPSILON);
 				best_hit_dist = coll.distance;
 				tri_hit = true;
 				//break;

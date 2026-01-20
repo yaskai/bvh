@@ -114,8 +114,8 @@ int main() {
 		}
 		*/
 
-		//DrawModelWires(map.model, Vector3Zero(), 1, DARKGREEN);
-		DrawModel(map.model, Vector3Zero(), 1, ColorAlpha(DARKGRAY, 1.0f));
+		DrawModel(map.model, Vector3Zero(), 1, DARKGRAY);
+		//DrawModelWires(map.model, Vector3Zero(), 1, SKYBLUE);
 
 		/*
 		for(u16 i = 0; i < map.bvh_node_count; i++) {
@@ -162,7 +162,7 @@ int main() {
 					tri->vertices[0],
 					tri->vertices[1],
 					tri->vertices[2],
-					GREEN
+					ColorAlpha(GREEN, 0.5f)
 				);
 
 				DrawLine3D(tri->vertices[0], tri->vertices[1], GREEN);

@@ -4,7 +4,7 @@
 #ifndef MAP_H_
 #define MAP_H_
 
-#define MAX_TRIS_PER_NODE	8
+#define MAX_TRIS_PER_NODE	4
 
 typedef struct {
 	Vector3 vertices[3];
@@ -57,9 +57,9 @@ void BvhNodeUpdateBounds(Map *map, u16 node_id);
 void BvhNodeSubdivide(Map *map, u16 root_id);
 
 void BvhNodeSubdivideSah(Map *map, u16 root_id);
-float SahEval(Map *map, BvhNode *node, u16 node_id, short axis, float pos);
+float SahEval(Map *map, BvhNode *node, short axis, float pos);
 
-void BoundsGrow(BoundingBox bounds, Vector3 point);
+void BoundsGrow(BoundingBox *bounds, Vector3 point);
 
 void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, u16 *tri_tests, u16 *branch_hits, u16 *branch_count, float *max_dist);
 
