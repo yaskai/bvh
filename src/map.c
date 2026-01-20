@@ -7,18 +7,6 @@
 #include "raymath.h"
 #include "map.h"
 
-u16 NodeDepth(BvhNode *node, Map *map) {
-	if(!node) return 0;
-	
-	bool is_leaf = node->tri_count > 0;
-	if(is_leaf) return 1;
-
-	u16 l = NodeDepth(&map->bvh_nodes[node->child_lft], map);
-	u16 r = NodeDepth(&map->bvh_nodes[node->child_rgt], map);
-
-	return (u16)(1 + fmax(l, r));
-}
-
 void SwapTriIds(u16 *a, u16 *b) {
 	u16 temp = *a;
 	*a = *b;
@@ -35,12 +23,13 @@ void MapInit(Map *map, char *map_path) {
 	printf("tri count: %d\n", map->tri_count);
 
 	//map->bvh_node_capacity = 4;
-	map->bvh_node_capacity = 1024;
+	map->bvh_node_capacity = 512;
 	map->bvh_nodes = calloc(map->bvh_node_capacity, sizeof(BvhNode));
 
-	BvhConstruct(map);
+	map->build_complete = 0;
 
-	printf("bvh node count: %d\n", map->bvh_node_count);
+	//BvhConstruct(map);
+	//printf("bvh node count: %d\n", map->bvh_node_count);
 }
 
 void MapClose(Map *map) {
@@ -145,6 +134,8 @@ Tri *ModelToTris(Model model, u32 *tri_count, u16 **tri_ids) {
 }
 
 void BvhConstruct(Map *map) {
+	float _t_start = GetTime(); 
+
 	// Create root node
 	BvhNode root_node = (BvhNode) {0};
 
@@ -176,6 +167,9 @@ void BvhConstruct(Map *map) {
 
 	//u16 d = NodeDepth(&map->bvh_nodes[0], map);
 	//printf("depth: %d\n", d);
+	
+	map->build_time = (GetTime() - _t_start); 
+	map->build_complete = 1;
 }
 
 void BvhNodeUpdateBounds(Map *map, u16 node_id) {
@@ -319,8 +313,11 @@ void BvhNodeSubdivideSah(Map *map, u16 root_id) {
 	float split_pos = best_pos;
 
 	float parent_area = BoxSurfaceArea(node->bounds);
-	float parent_cost = parent_area;
-	//if(best_cost >= parent_cost) return;
+	float parent_cost = node->tri_count * parent_area;
+	if(best_cost >= parent_cost && node->tri_count <= MAX_TRIS_PER_NODE) {
+		printf("best_cost >= parent_cost\n");
+		return;
+	} 
 
 	// In-place partition
 	u16 i = node->first_tri;
@@ -411,8 +408,30 @@ float SahEval(Map *map, BvhNode *node, short axis, float pos) {
 	}
 
 	float cost = count_lft * BoxSurfaceArea(bounds_lft) + count_rgt * BoxSurfaceArea(bounds_rgt);
-	//return (cost > 0) ? cost : 1e30f;
 	return cost;
+}
+
+void BvhNodeSubdivideSahFast(Map *map, u16 root_id) {
+	BvhNode *node = &map->bvh_nodes[root_id];
+
+	// Stop recursion
+	if(node->tri_count <= MAX_TRIS_PER_NODE) return;
+
+	Bucket buckets[BUCKET_COUNT];
+	float scale = BUCKET_COUNT / Vector3Length(Vector3Subtract(node->bounds.max, node->bounds.min));
+
+	for(u16 i = 0; i < node->tri_count; i++) {
+		u16 tri_id = map->tri_ids[node->first_tri + i];
+		Tri *tri = &map->tris[tri_id];
+
+		/*
+		u16 bucket_id = (u16)fminf(
+			BUCKET_COUNT -1, 
+			1
+		);
+		*/
+	}
+
 }
 
 void BoundsGrow(BoundingBox *bounds, Vector3 point) {
@@ -484,5 +503,17 @@ void BvhTraceNodes(Ray ray, u16 root_node, u16 *hits, u16 *hit_count, Map *map, 
 
 	if(dist_a < *max_dist) BvhTraceNodes(ray, node->child_lft, hits, hit_count, map, tri_tests, branch_hits, branch_count, max_dist);
 	if(dist_b < *max_dist) BvhTraceNodes(ray, node->child_rgt, hits, hit_count, map, tri_tests, branch_hits, branch_count, max_dist);
+}
+
+u16 NodeDepth(BvhNode *node, Map *map) {
+	if(!node) return 0;
+	
+	bool is_leaf = node->tri_count > 0;
+	if(is_leaf) return 1;
+
+	u16 l = NodeDepth(&map->bvh_nodes[node->child_lft], map);
+	u16 r = NodeDepth(&map->bvh_nodes[node->child_rgt], map);
+
+	return (u16)(1 + fmax(l, r));
 }
 
