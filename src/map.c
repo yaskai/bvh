@@ -20,8 +20,11 @@ void MapInit(Map *map, char *map_path) {
 	map->tri_ids = NULL;
 	map->tris = ModelToTris(map->model, &map->tri_count, &map->tri_ids);
 
+	puts("\n--------- MAP INFO ---------");
+	printf("file: %s\n", map_path);
 	printf("mesh count: %d\n", map->model.meshCount);
 	printf("tri count: %d\n", map->tri_count);
+	puts("----------------------------\n");
 
 	//map->bvh_node_capacity = 4;
 	map->bvh_node_capacity = 512;
@@ -164,7 +167,8 @@ void BvhConstruct(Map *map) {
 
 	BvhNodeUpdateBounds(map, 0);
 	//BvhNodeSubdivide(map, 0);
-	BvhNodeSubdivideSah(map, 0);
+	//BvhNodeSubdivideSah(map, 0);
+	BvhNodeSubdivideSahFast(map, 0);
 
 	//u16 d = NodeDepth(&map->bvh_nodes[0], map);
 	//printf("depth: %d\n", d);
@@ -172,13 +176,16 @@ void BvhConstruct(Map *map) {
 	map->build_time = (GetTime() - _t_start); 
 	map->build_complete = 1;
 
-	printf("bvh node count: %d\n", map->bvh_node_count);
-	
 	map->bvh_node_capacity = map->bvh_node_count;
 	map->bvh_nodes = realloc(map->bvh_nodes, sizeof(BvhNode) * map->bvh_node_capacity);
 
 	size_t mem_usage = sizeof(BvhNode) * map->bvh_node_capacity;
+
+	puts("\n--------- BVH INFO ---------");
+	printf("node count: %d\n", map->bvh_node_count);
 	printf("memory usage: %zukb\n", mem_usage / 1000);
+	printf("build time: %f\n", map->build_time);
+	puts("----------------------------\n");
 }
 
 void BvhNodeUpdateBounds(Map *map, u16 node_id) {
@@ -288,16 +295,21 @@ void BvhNodeSubdivide(Map *map, u16 root_id) {
 	BvhNodeSubdivide(map, node_id_rgt);
 }
 
+float BvhNodeCost(BvhNode *node) {
+	float area = BoxSurfaceArea(node->bounds);
+	return area * node->tri_count;
+}
+
 void BvhNodeSubdivideSah(Map *map, u16 root_id) {
 	BvhNode *node = &map->bvh_nodes[root_id];
 
 	// Stop recursion
-	if(node->tri_count <= MAX_TRIS_PER_NODE) return;
+	//if(node->tri_count <= MAX_TRIS_PER_NODE) return;
 
 	// Find longest axis distance to use for split
 	short best_axis = -1;
 	float best_pos = 0;
-	float best_cost = 1e30f;
+	float best_cost = FLT_MAX;
 
 	for(short axis = 0; axis < 3; axis++) {
 		for(u16 i = 0; i < node->tri_count; i++) {
@@ -323,8 +335,8 @@ void BvhNodeSubdivideSah(Map *map, u16 root_id) {
 
 	float parent_area = BoxSurfaceArea(node->bounds);
 	float parent_cost = node->tri_count * parent_area;
-	if(best_cost >= parent_cost && node->tri_count <= MAX_TRIS_PER_NODE) {
-		printf("best_cost >= parent_cost\n");
+	if(best_cost >= parent_cost && node->tri_count <= MAX_TRIS_PER_NODE << 1) {
+		//printf("best_cost >= parent_cost\n");
 		return;
 	} 
 
@@ -413,11 +425,82 @@ float SahEval(Map *map, BvhNode *node, short axis, float pos) {
 			BoundsGrow(&bounds_rgt, tri->vertices[1]);
 			BoundsGrow(&bounds_rgt, tri->vertices[2]);
 		}
-
 	}
 
 	float cost = count_lft * BoxSurfaceArea(bounds_lft) + count_rgt * BoxSurfaceArea(bounds_rgt);
-	return cost;
+	return (cost > 0) ? cost : FLT_MAX; 
+}
+
+float FindBestSplitPlane(Map *map, BvhNode *node, short *axis, float *split_pos) {
+	float best_cost = FLT_MAX;
+
+	BoundingBox empty_box = (BoundingBox) { .min = Vector3Scale(Vector3One(), FLT_MAX), .max = Vector3Scale(Vector3One(), -FLT_MAX) };
+
+	for(short a = 0; a < 3; a++) {
+		float bmin =  FLT_MAX;
+		float bmax = -FLT_MAX;
+
+		for(u16 i = 0; i < node->tri_count; i++) {
+			Tri *tri = &map->tris[map->tri_ids[node->first_tri + i]];
+	 		float3 centroid = Vector3ToFloatV(TriCentroid(tri));
+
+			bmin = fminf(centroid.v[a], bmin);
+			bmax = fmaxf(centroid.v[a], bmax);
+		}
+
+		if(bmin == bmax) continue;
+
+		Bucket buckets[BUCKET_COUNT] = {0};
+		for(short i = 0; i < BUCKET_COUNT; i++) buckets[i].bounds = empty_box;
+
+		float scale = BUCKET_COUNT / (bmax - bmin); 
+
+		for(u16 i = 0; i < node->tri_count; i++) {
+			Tri *tri = &map->tris[map->tri_ids[node->first_tri + i]];
+	 		float3 centroid = Vector3ToFloatV(TriCentroid(tri));
+
+			int bucket_id = fmin(BUCKET_COUNT - 1, (int)((centroid.v[a] - bmin) * scale));
+			buckets[bucket_id].count++;
+			BoundsGrow(&buckets[bucket_id].bounds, tri->vertices[0]);
+			BoundsGrow(&buckets[bucket_id].bounds, tri->vertices[1]);
+			BoundsGrow(&buckets[bucket_id].bounds, tri->vertices[2]);
+		}
+
+		float area_lft[BUCKET_COUNT - 1], area_rgt[BUCKET_COUNT - 1];
+		u16 count_lft[BUCKET_COUNT - 1], count_rgt[BUCKET_COUNT - 1];
+
+		BoundingBox bounds_lft = empty_box, bounds_rgt = empty_box;
+
+		u32 sum_lft = 0, sum_rgt = 0;		
+
+		for(short i = 0; i < BUCKET_COUNT - 1; i++) {
+			sum_lft += buckets[i].count;
+			count_lft[i] = sum_lft;
+			bounds_lft.min = Vector3Min(buckets[i].bounds.min, bounds_lft.min);
+			bounds_lft.max = Vector3Max(buckets[i].bounds.max, bounds_lft.max);
+			area_lft[i] = BoxSurfaceArea(bounds_lft);
+
+			sum_rgt += buckets[BUCKET_COUNT - 1 - i].count;
+			count_rgt[BUCKET_COUNT - 2 - i] = sum_rgt;
+			bounds_rgt.min = Vector3Min(buckets[BUCKET_COUNT - 1 - i].bounds.min, bounds_rgt.min);
+			bounds_rgt.max = Vector3Max(buckets[BUCKET_COUNT - 1 - i].bounds.max, bounds_rgt.max);
+			area_rgt[BUCKET_COUNT - 2 - i] = BoxSurfaceArea(bounds_rgt);
+		}
+
+		scale = (bmax - bmin) / BUCKET_COUNT;
+
+		for(short i = 0; i < BUCKET_COUNT - 1; i++) {
+			float cost = (count_lft[i] * area_lft[i] + count_rgt[i] * area_rgt[i]) / BoxSurfaceArea(node->bounds);
+
+			if(cost < best_cost) {
+				*axis = a;
+				*split_pos = bmin + scale * (i + 1); 
+				best_cost = cost;
+			}
+		}
+	}
+
+	return best_cost;
 }
 
 void BvhNodeSubdivideSahFast(Map *map, u16 root_id) {
@@ -426,21 +509,73 @@ void BvhNodeSubdivideSahFast(Map *map, u16 root_id) {
 	// Stop recursion
 	if(node->tri_count <= MAX_TRIS_PER_NODE) return;
 
-	Bucket buckets[BUCKET_COUNT];
-	float scale = BUCKET_COUNT / Vector3Length(Vector3Subtract(node->bounds.max, node->bounds.min));
+	// Find longest axis distance to use for split
+	short best_axis = -1;
+	float best_pos = 0;
 
-	for(u16 i = 0; i < node->tri_count; i++) {
-		u16 tri_id = map->tri_ids[node->first_tri + i];
-		Tri *tri = &map->tris[tri_id];
+	float best_cost = FindBestSplitPlane(map, node, &best_axis, &best_pos);
 
-		/*
-		u16 bucket_id = (u16)fminf(
-			BUCKET_COUNT -1, 
-			1
-		);
-		*/
+	float parent_cost = BvhNodeCost(node);
+	if(best_cost > parent_cost) return;
+
+	short split_axis = best_axis;
+	float split_pos = best_pos;
+
+	// In-place partition
+	u16 i = node->first_tri;
+	u16 j = i + node->tri_count - 1;
+	while(i <= j) {
+		Tri *tri = &map->tris[map->tri_ids[i]];
+		
+		Vector3 centroid = TriCentroid(tri);
+		float3 c = Vector3ToFloatV(centroid);
+
+		if(c.v[split_axis] < split_pos) { 
+			i++;
+		} else {
+			// Swap with tri with tri at end of list
+			SwapTriIds(&map->tri_ids[i], &map->tri_ids[j--]);
+		}
+	}	
+	
+	// Cancel splitting if either side is empty 
+	u16 count_lft = i - node->first_tri;  
+	if(count_lft == 0 || count_lft == node->tri_count) return;
+
+	if(map->bvh_node_count + 2 >= map->bvh_node_capacity) {
+		map->bvh_node_capacity = (map->bvh_node_capacity << 1);
+		map->bvh_nodes = realloc(map->bvh_nodes, sizeof(BvhNode) * map->bvh_node_capacity);
 	}
 
+	// Create child nodes
+	u16 node_id_lft = map->bvh_node_count++;
+	u16 node_id_rgt = map->bvh_node_count++;
+
+	map->bvh_nodes[node_id_lft] = (BvhNode) {
+		.bounds = node->bounds,
+		.first_tri = node->first_tri,
+		.tri_count = count_lft,
+		.child_lft = 0,
+		.child_rgt = 0
+	};
+	node->child_lft = node_id_lft;
+
+	map->bvh_nodes[node_id_rgt] = (BvhNode) {
+		.bounds = node->bounds,
+		.first_tri = i,
+		.tri_count = node->tri_count - count_lft,
+		.child_lft = 0,
+		.child_rgt = 0
+	};
+	node->child_rgt = node_id_rgt;
+
+	node->tri_count = 0;
+
+	BvhNodeUpdateBounds(map, node_id_lft);
+	BvhNodeUpdateBounds(map, node_id_rgt);
+
+	BvhNodeSubdivideSahFast(map, node_id_lft);
+	BvhNodeSubdivideSahFast(map, node_id_rgt);
 }
 
 void BoundsGrow(BoundingBox *bounds, Vector3 point) {

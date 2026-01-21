@@ -5,7 +5,7 @@
 #define MAP_H_
 
 #define MAX_TRIS_PER_NODE	 2
-#define BUCKET_COUNT		12
+#define BUCKET_COUNT		 8
 
 typedef struct {
 	BoundingBox bounds;
@@ -68,7 +68,11 @@ void BvhNodeUpdateBounds(Map *map, u16 node_id);
 void BvhNodeSubdivide(Map *map, u16 root_id);
 
 void BvhNodeSubdivideSah(Map *map, u16 root_id);
+
+float BvhNodeCost(BvhNode *node);
 float SahEval(Map *map, BvhNode *node, short axis, float pos);
+
+float FindBestSplitPlane(Map *map, BvhNode *node, short *axis, float *split_pos);
 
 void BvhNodeSubdivideSahFast(Map *map, u16 root_id);
 

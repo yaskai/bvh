@@ -46,8 +46,8 @@ int main() {
 	Map map = (Map) {0};
 
 	//char *map_name = "HyruleField.glb";
-	//char *map_name = "e1m1.glb";
-	char *map_name = "kokiri_forest.glb";
+	//char *map_name = "kokiri_forest.glb";
+	char *map_name = "e1m1.glb";
 	MapInit(&map, map_name);
 
 	pthread_t thread1;
