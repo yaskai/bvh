@@ -122,7 +122,7 @@ int main() {
 		} else {
 			for(u16 i = 0; i < branch_hit_count; i++) {
 				BvhNode *node = &map.bvh_nodes[branch_hits[i]];
-				DrawBoundingBox(node->bounds, ColorAlpha(DARKGREEN, 0.85f));
+				DrawBoundingBox(node->bounds, ColorAlpha(DARKGREEN, 0.75f));
 			}
 			
 			for(u16 i = 0; i < vis_node_count; i++) {
@@ -197,7 +197,9 @@ int main() {
 		DrawTextEx(font, TextFormat("branch hits: %d", branch_hit_count), (Vector2) { 0, 160 }, 32, 1, LAVENDER);
 
 		float tri_percent = (tri_tests > 0) ? ((float)tri_tests / map.tri_count) * 100.0f : 0; 
-		DrawTextEx(font, TextFormat("tri tests: %d/%d, %%%.2f", tri_tests, map.tri_count, tri_percent), (Vector2) { 0, 200 }, 32, 1, LAVENDER);
+		DrawTextEx(font, TextFormat("tri tests: %d/%d (%%%.2f)", tri_tests, map.tri_count, tri_percent), (Vector2) { 0, 200 }, 32, 1, LAVENDER);
+
+		DrawTextEx(font, TextFormat("node count: %d (%zukb)", map.bvh_node_count, map.mem_use), (Vector2) { 0, 240 }, 32, 1, LAVENDER);
 
 		EndDrawing();
 	}

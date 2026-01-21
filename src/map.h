@@ -1,3 +1,5 @@
+#include <stdint.h>
+#include <stddef.h>
 #include "raylib.h"
 #include "num_redefs.h"
 
@@ -39,6 +41,8 @@ typedef struct {
 	u16 *tri_ids;
 
 	float build_time;
+
+	size_t mem_use;
 
 	u32 tri_count;
 

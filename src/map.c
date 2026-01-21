@@ -182,6 +182,7 @@ void BvhConstruct(Map *map) {
 	map->bvh_nodes = realloc(map->bvh_nodes, sizeof(BvhNode) * map->bvh_node_capacity);
 
 	size_t mem_usage = sizeof(BvhNode) * map->bvh_node_capacity;
+	map->mem_use = mem_usage / 1000;
 
 	puts("\n--------- BVH INFO ---------");
 	printf("node count: %d\n", map->bvh_node_count);
@@ -476,17 +477,19 @@ float FindBestSplitPlane(Map *map, BvhNode *node, short *axis, float *split_pos)
 		u32 sum_lft = 0, sum_rgt = 0;		
 
 		for(short i = 0; i < BUCKET_COUNT - 1; i++) {
-			sum_lft += buckets[i].count;
+			short id_lft = i;
+			sum_lft += buckets[id_lft].count;
 			count_lft[i] = sum_lft;
 			bounds_lft.min = Vector3Min(buckets[i].bounds.min, bounds_lft.min);
 			bounds_lft.max = Vector3Max(buckets[i].bounds.max, bounds_lft.max);
 			area_lft[i] = BoxSurfaceArea(bounds_lft);
 
+			short id_rgt = BUCKET_COUNT - 2 - i;
 			sum_rgt += buckets[BUCKET_COUNT - 1 - i].count;
-			count_rgt[BUCKET_COUNT - 2 - i] = sum_rgt;
+			count_rgt[id_rgt] = sum_rgt;
 			bounds_rgt.min = Vector3Min(buckets[BUCKET_COUNT - 1 - i].bounds.min, bounds_rgt.min);
 			bounds_rgt.max = Vector3Max(buckets[BUCKET_COUNT - 1 - i].bounds.max, bounds_rgt.max);
-			area_rgt[BUCKET_COUNT - 2 - i] = BoxSurfaceArea(bounds_rgt);
+			area_rgt[id_rgt] = BoxSurfaceArea(bounds_rgt);
 		}
 
 		scale = (bmax - bmin) / BUCKET_COUNT;
@@ -506,7 +509,8 @@ float FindBestSplitPlane(Map *map, BvhNode *node, short *axis, float *split_pos)
 }
 
 void BvhNodeSubdivideSahFast(Map *map, u16 root_id) {
-	WaitTime(0.0f);
+	//WaitTime(0.1f);
+	//WaitTime(0);
 
 	BvhNode *node = &map->bvh_nodes[root_id];
 
