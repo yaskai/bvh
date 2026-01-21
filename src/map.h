@@ -5,7 +5,7 @@
 #define MAP_H_
 
 #define MAX_TRIS_PER_NODE	 2
-#define BUCKET_COUNT		 8
+#define BUCKET_COUNT	    16
 
 typedef struct {
 	BoundingBox bounds;

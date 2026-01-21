@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <float.h>
 #include <string.h>
+#include <threads.h>
+#include <stdint.h>
 #include "raylib.h"
 #include "raymath.h"
 #include "map.h"
@@ -504,6 +506,8 @@ float FindBestSplitPlane(Map *map, BvhNode *node, short *axis, float *split_pos)
 }
 
 void BvhNodeSubdivideSahFast(Map *map, u16 root_id) {
+	WaitTime(0.0f);
+
 	BvhNode *node = &map->bvh_nodes[root_id];
 
 	// Stop recursion

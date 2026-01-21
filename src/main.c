@@ -114,10 +114,10 @@ int main() {
 				BvhNode *node = &map.bvh_nodes[i];
 
 				bool is_leaf = (node->tri_count > 0);
-				if(!is_leaf) continue;
+				//if(!is_leaf) continue;
 
-				Color color = (is_leaf) ? GREEN : DARKGREEN;
-				DrawBoundingBox(node->bounds, ColorAlpha(color, 0.85f));
+				Color color = (is_leaf) ? DARKGREEN : DARKGRAY;
+				DrawBoundingBox(node->bounds, ColorAlpha(color, 0.75f));
 			}
 		} else {
 			for(u16 i = 0; i < branch_hit_count; i++) {
@@ -202,11 +202,11 @@ int main() {
 		EndDrawing();
 	}
 
-	CloseWindow();
-	MapClose(&map);
-
 	if(thread_started)
 		pthread_join(thread1, NULL);
+
+	CloseWindow();
+	MapClose(&map);
 
 	return 0;
 }
