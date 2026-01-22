@@ -48,6 +48,7 @@ int main() {
 	//char *map_name = "HyruleField.glb";
 	//char *map_name = "kokiri_forest.glb";
 	char *map_name = "e1m1.glb";
+	//char *map_name = "sandwich.glb";
 	MapInit(&map, map_name);
 
 	pthread_t thread1;
@@ -76,9 +77,21 @@ int main() {
 		float time = GetTime();
 		float delta_time = GetFrameTime();
 
+		/*
 		if(IsKeyPressed(KEY_SPACE) && !thread_started) {
 			pthread_create(&thread1, NULL, (void*)BvhConstruct, &map);
 			thread_started = 1;
+		}
+		*/
+
+		if(IsKeyPressed(KEY_SPACE)) {
+			if(!thread_started) {
+				pthread_create(&thread1, NULL, (void*)BvhConstruct, &map);
+				thread_started = 1;
+			} else if(map.build_complete) {
+				pthread_create(&thread1, NULL, (void*)BvhConstruct, &map);
+				thread_started = 1;
+			}
 		}
 
 		vis_node_count = 0;

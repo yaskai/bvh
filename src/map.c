@@ -140,6 +140,10 @@ Tri *ModelToTris(Model model, u32 *tri_count, u16 **tri_ids) {
 }
 
 void BvhConstruct(Map *map) {
+	map->bvh_node_count = 0;
+	map->build_time = 0;
+	map->build_complete = false;
+
 	float _t_start = GetTime(); 
 
 	// Create root node
@@ -510,14 +514,13 @@ float FindBestSplitPlane(Map *map, BvhNode *node, short *axis, float *split_pos)
 
 void BvhNodeSubdivideSahFast(Map *map, u16 root_id) {
 	//WaitTime(0.1f);
-	//WaitTime(0);
+	WaitTime(0);
 
 	BvhNode *node = &map->bvh_nodes[root_id];
 
 	// Stop recursion
 	if(node->tri_count <= MAX_TRIS_PER_NODE) return;
 
-	// Find longest axis distance to use for split
 	short best_axis = -1;
 	float best_pos = 0;
 
