@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <float.h>
 #include <string.h>
+#include <sys/types.h>
 #include <threads.h>
 #include <stdint.h>
 #include "raylib.h"
@@ -78,22 +79,19 @@ Vector3 BoxCenter(BoundingBox box) {
 }
 
 Tri *MeshToTris(Mesh mesh, u32 *tri_count) {
-	u32 count = mesh.triangleCount;
+	u16 count = mesh.triangleCount;
 	*tri_count = count;
 
 	Tri *tris = calloc(count, sizeof(Tri));
 
-	for(u32 i = 0; i < count; i++) {
+	for(u16 i = 0; i < count; i++) {
 		Tri tri = (Tri) {0};
 
-		u32 indices[3] = {
-			mesh.indices[i * 3 + 0],
-			mesh.indices[i * 3 + 1],
-			mesh.indices[i * 3 + 2]
-		};
+		u16 indices[3] = {0};
+		memcpy(indices, mesh.indices + i * 3, sizeof(u16) * 3);
 
-		for(u8 j = 0; j < 3; j++) {
-			u32 id = indices[j]; 
+		for(short j = 0; j < 3; j++) {
+			u16 id = indices[j]; 
 
 			tri.vertices[j] = (Vector3) {
 				.x = mesh.vertices[id * 3 + 0],
@@ -514,7 +512,7 @@ float FindBestSplitPlane(Map *map, BvhNode *node, short *axis, float *split_pos)
 
 void BvhNodeSubdivideSahFast(Map *map, u16 root_id) {
 	//WaitTime(0.1f);
-	WaitTime(0);
+	//WaitTime(0);
 
 	BvhNode *node = &map->bvh_nodes[root_id];
 
